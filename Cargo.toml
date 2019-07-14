@@ -1,0 +1,9 @@
+[package]
+name = "EVA_LIB"
+version = "0.1.0"
+authors = ["Zack Yang <zackyang214@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+jpeg-decoder = "*"
+bmp = "*"
