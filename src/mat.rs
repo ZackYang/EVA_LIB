@@ -8,6 +8,8 @@ extern crate png;
 use jpeg_decoder::Decoder;
 use jpeg_decoder::PixelFormat;
 
+mod kernel;
+
 #[derive(Debug)]
 pub struct Mat {
     pub cols: u16,
@@ -35,7 +37,6 @@ impl Mat {
 
     pub fn save_as_bmp(&self, path: &str)
     {
-
         let mut bmp_image = bmp::Image::new(self.cols as u32, self.rows as u32);
         // println!("{:?}", self.data[0]);
         for y in 0..(self.rows as usize) {
@@ -171,7 +172,7 @@ impl Mat {
         }
     }
 
-    pub fn each_pixel(self, closure: &Fn(u16, u16, Vec<u8>)) {
+    pub fn each_pixel(&self, closure: &Fn(u16, u16, Vec<u8>)) {
         for y in 0..(self.rows as usize) {
             for x in 0..(self.cols as usize) {
                 closure(x as u16, y as u16, self.data[y][x].to_vec());
@@ -203,6 +204,15 @@ impl Mat {
             }
         }
         pixels
+    }
+
+    pub fn convolute(&self, kernel: kernel::Kernel) {
+        for y in 1..(self.rows as usize - kernel.size()) {
+            for x in 1..(self.cols as usize - kernel.size()) {
+                self.crop(x, y, kernel.size(), kernel.size());                
+            }
+        }
+
     }
 
     pub fn print(&self) {
