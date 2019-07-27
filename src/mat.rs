@@ -10,10 +10,10 @@ use jpeg_decoder::PixelFormat;
 
 #[derive(Debug)]
 pub struct Mat {
-    cols: u16,
-    rows: u16,
-    bytes_per_pixel: usize,
-    data: Vec<Vec<Vec<u8>>>
+    pub cols: u16,
+    pub rows: u16,
+    pub bytes_per_pixel: usize,
+    pub data: Vec<Vec<Vec<u8>>>
 }
 
 impl Mat {
@@ -73,9 +73,9 @@ impl Mat {
         let mut encoder = png::Encoder::new(w, self.cols as u32, self.rows as u32); // Width is 2 pixels and height is 1.
         encoder.set(png::ColorType::RGBA).set(png::BitDepth::Eight);
         let mut writer = encoder.write_header().unwrap();
-
-        let data = [255, 0, 0, 255, 0, 0, 0, 255]; // An array containing a RGBA sequence. First pixel is red and second pixel is black.
-        writer.write_image_data(&data).unwrap(); // Save
+        let data: &[u8] = &self.flatten();
+        // An array containing a RGBA sequence. First pixel is red and second pixel is black.
+        writer.write_image_data(data).unwrap(); // Save
     }
 
     pub fn load_from_vec(raw: Vec<u8>, width: u16, height: u16, bytes_per_pixel: usize)
@@ -91,7 +91,20 @@ impl Mat {
         for chunk in pixels.chunks(width as usize) {
             data.push(chunk.to_vec());
         }
-        let mat = Mat {cols: width, rows: height, bytes_per_pixel: bytes_per_pixel, data: data};
+        let mut mat = Mat {cols: width, rows: height, bytes_per_pixel: bytes_per_pixel, data: data};
+        // Convert RGB to RGBA
+        mat.change_each_pixel(&|x, y, vec| {
+            if vec.len() == 3 {
+                let mut new_vec = vec.to_vec();
+                new_vec.push(255u8);
+                return new_vec;
+            }
+            vec
+        });
+        if bytes_per_pixel == 3 {
+            mat.bytes_per_pixel = 4;
+        }
+        // END Convert RGB to RGBA
         mat
     }
     
@@ -111,13 +124,15 @@ impl Mat {
     {
         let scale_x = (self.cols as f32)/(width as f32);
         let scale_y = (self.rows as f32)/(height as f32);
-        let mut new_data = vec![vec![vec![0u8; 3]; width]; height];
+        let mut new_data = vec![vec![vec![0u8; 4]; width]; height];
         let src_data = &self.data;
         for y in 0..height {
             for x in 0..width {
                 let src_x = ((x as f32)*scale_x).round() as usize;
                 let src_y = ((y as f32)*scale_y).round() as usize;
-                new_data[y][x] = src_data[src_y][src_x].to_vec();
+                if src_x < self.cols as usize && src_y < self.rows as usize {
+                    new_data[y][x] = src_data[src_y][src_x].to_vec();
+                }
             }
         }
         let mat = Mat {cols: width as u16, rows: height as u16, bytes_per_pixel: self.bytes_per_pixel, data: new_data};
@@ -133,7 +148,7 @@ impl Mat {
     pub fn merge(&self, other: Mat)
         -> Mat
     {
-        let mut new_data = vec![vec![vec![0u8; 3]; self.cols as usize]; self.rows as usize];
+        let mut new_data = vec![vec![vec![0u8]; self.cols as usize]; self.rows as usize];
 
         for y in 0..(self.rows as usize) {
             for x in 0..(self.cols as usize) {
@@ -156,7 +171,7 @@ impl Mat {
         }
     }
 
-    pub fn each_pixel(&mut self, closure: &Fn(u16, u16, Vec<u8>)) {
+    pub fn each_pixel(self, closure: &Fn(u16, u16, Vec<u8>)) {
         for y in 0..(self.rows as usize) {
             for x in 0..(self.cols as usize) {
                 closure(x as u16, y as u16, self.data[y][x].to_vec());
@@ -176,6 +191,18 @@ impl Mat {
             }
         );
         channel
+    }
+
+    pub fn flatten(&self) -> Vec<u8> {
+        let mut pixels = Vec::with_capacity((self.rows as usize * self.cols as usize));
+        for y in 0..(self.rows as usize) {
+            for x in 0..(self.cols as usize) {
+                for value in self.data[y][x].to_vec() {
+                    pixels.push(value);
+                }
+            }
+        }
+        pixels
     }
 
     pub fn print(&self) {
