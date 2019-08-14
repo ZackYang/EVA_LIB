@@ -7,5 +7,5 @@ edition = "2018"
 [dependencies]
 jpeg-decoder = "*"
 bmp = "*"
-png = "*"
+png = "0.14.1"
 rand = "0.7.0"

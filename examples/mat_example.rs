@@ -24,17 +24,9 @@ fn main() {
     let mut unfocus = mat::Mat::load_jpeg("examples/huge.jpg").resize(300, 300);
 
     // let laplation_result = beauty.convolute(mat::kernels::Kernel::laplation_4());
-    let unfocus_laplation_result = unfocus.convolute(mat::kernels::Kernel::laplation_8());
-
-    let descriptions = unfocus.fast_search_features(10, None);
+    let unfocus_laplation_result = unfocus.to_gray().convolute(mat::kernels::Kernel::laplation_8());
     
-    for desc in descriptions {
-        // println!("{:?}", desc.coordinate);
-        unfocus.draw_point(desc.coordinate, &mut vec![0u8, 0u8, 255u8, 255u8]);
-    }
-    unfocus.save_as_png("feature_points.png");
-    // laplation_result.save_as_png("laplation_result.png");
-    unfocus_laplation_result.save_as_png("unfocus_laplation_result.png");
+    unfocus_laplation_result.save_as_png("laplation_result.png");
     
     // Stitching two pictures
     

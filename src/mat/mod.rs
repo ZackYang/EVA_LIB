@@ -9,13 +9,14 @@ extern crate png;
 use jpeg_decoder::Decoder;
 use jpeg_decoder::PixelFormat;
 
-use std::time::{Duration, Instant};
-use std::thread::sleep;
+use std::time::{Instant};
 
 pub mod kernels;
 pub mod pixel_description;
+pub mod transform;
 
 use pixel_description::PixelDescription;
+use pixel_description::Direction;
 
 #[derive(Debug, Clone)]
 pub struct Mat {
@@ -56,7 +57,6 @@ impl Mat {
     pub fn save_as_bmp(&self, path: &str)
     {
         let mut bmp_image = bmp::Image::new(self.cols as u32, self.rows as u32);
-        // println!("{:?}", self.data[0]);
         for y in 0..(self.rows as usize) {
             for x in 0..(self.cols as usize) {
                 bmp_image.set_pixel(x as u32, y as u32, bmp::Pixel::new(self.data[y][x][0], self.data[y][x][1], self.data[y][x][2]))
@@ -113,31 +113,26 @@ impl Mat {
     pub fn load_from_vec(raw: Vec<u8>, width: u16, height: u16, bytes_per_pixel: usize)
         -> Mat
     {
-        let mut pixels = Vec::new();
-        for chunk in raw.chunks(bytes_per_pixel) {
-            pixels.push(chunk.to_vec());
-        }
+        let mut data = Vec::<Vec<Vec<u8>>>::new();
+        
+        let mut new_bytes_per_pixel = 2;
 
-        let mut data = Vec::new();
-        for chunk in pixels.chunks(width as usize) {
-            data.push(chunk.to_vec());
-        }
-
-        let mut mat = Mat {cols: width, rows: height, bytes_per_pixel: bytes_per_pixel, data: data};
-        // Convert RGB to RGBA
-        mat.change_each_pixel(&|_, _, vec| {
-            if vec.len() == 3 {
-                let mut new_vec = vec.to_vec();
-                new_vec.push(255u8);
-                return new_vec;
-            }
-            vec
-        });
         if bytes_per_pixel == 3 {
-            mat.bytes_per_pixel = 4;
+            new_bytes_per_pixel = 4;
+            data = vec![vec![vec![0u8, 0u8, 0u8, 255u8]; width as usize]; height as usize];
         }
-        // END Convert RGB to RGBA
-        mat
+
+        if bytes_per_pixel == 1 {
+            new_bytes_per_pixel = 2;
+            data = vec![vec![vec![0u8, 255u8]; width as usize]; height as usize];
+        }
+        for i in 0..raw.len() {
+            let offset = i%(width as usize * height as usize)%bytes_per_pixel;
+            let x = i/bytes_per_pixel%width as usize;
+            let y = i/bytes_per_pixel/width as usize;
+            data[y][x][offset] = raw[i];
+        }
+        Mat {cols: width, rows: height, bytes_per_pixel: new_bytes_per_pixel, data: data}
     }
     
     pub fn crop(&self, x: usize, y: usize, width: usize, height: usize)
@@ -257,8 +252,7 @@ impl Mat {
         let mut result_pixels = Vec::<u8>::with_capacity(result_size);
         let all_pixels = self.to_gray().get_channel(0);
         let kernel_values = kernel.flatten();
-        let now = Instant::now();
- 
+
         let pixels = all_pixels.flatten();
         let mut unified_pixels = Vec::<f32>::with_capacity(pixels.len());
         
@@ -280,38 +274,31 @@ impl Mat {
                 result_pixels.push(pixel as u8);
             }
         }
-        println!("{}", now.elapsed().as_millis());
         Mat::load_from_vec(result_pixels, new_cols as u16, new_rows as u16, 1)
     }
 
-    pub fn fast_search_features(&self, threshold: usize, mask: Option<Mat>)
+    pub fn fast_search_features(&self, threshold: usize, mask: &(u16, u16, u16, u16), direction: Direction)
         -> Vec<PixelDescription>
-    {
-        let now = Instant::now();
+    {   
         let mut descriptions = Vec::<PixelDescription>::new();
-        let gray = self.to_gray();
-        let mask = mask.unwrap_or_else(
-            || Mat::new(self.cols, self.rows, Some(255u8))
-        );
-        for y in 0..(gray.rows as usize) {
-            for x in 0..(gray.cols as usize) {
-                if mask.data[y][x][0] > 0 {
-                    for value in gray.data[y][x].to_vec() {
-                        let (result, description) = PixelDescription::load_as_fast((x as u16, y as u16), &gray.data, threshold);
-                        if result {
-                            descriptions.push(description);
-                        }
-                    }
+        let now = Instant::now();
+        
+        for y in (mask.1)..(mask.1+mask.3) {
+            for x in (mask.0)..(mask.0+mask.2) {
+                let (result, description) = PixelDescription::load_as_fast((x, y), &self.data, threshold, &direction);
+                if result {
+                    descriptions.push(description);
                 }
-            }
+            }   
         }
-        println!("Spend ms on search feature:{}", now.elapsed().as_millis());
+
+        println!("Spend ms on generate descriptions: {:?}", now.elapsed().as_millis());
+
         let before_nms = Instant::now();
         descriptions = self.nms(&mut descriptions);
         println!("Spend ms on NMS:{}", before_nms.elapsed().as_millis());
         let len = descriptions.len();
         println!("Feature points:{:?}", len);
-        
         descriptions
     }
 
@@ -373,6 +360,20 @@ impl Mat {
         }
     }
 
+    pub fn polarize(&self) -> Mat {
+        let mut new_image = self.clone();
+        new_image.change_each_pixel(&|_, _, vec| {
+            if vec[0] > 10u8 {
+                let mut new_value = vec[0] as u32 * 8;
+                if new_value > 255 { new_value = 255; }
+                return vec![new_value as u8, 255u8];
+            } else {
+                return vec![0u8, 255u8];
+            }
+        });
+        new_image
+    }
+
     // pub fn rotate(&self, degree: f32)
     //  -> Mat
     // {
@@ -382,10 +383,63 @@ impl Mat {
     pub fn print(&self) {
         println!("{:?}", self.data);
     }
+
+    pub fn avg_mapping_vector(pairs: &Vec<(PixelDescription, PixelDescription)>) -> (f32, f32) {
+        let mut x_move_total = 0.0;
+        let mut y_move_total = 0.0;
+        for pair in pairs {
+            let x_move = pair.0.coordinate.0 as f32 - pair.1.coordinate.0 as f32;
+            let y_move = pair.0.coordinate.1 as f32 - pair.1.coordinate.1 as f32;
+            x_move_total += x_move;
+            y_move_total += y_move;
+        }
+        (x_move_total/pairs.len() as f32, y_move_total/pairs.len() as f32)
+    }
+
+    pub fn move_mat(dist: &mut Mat, src: &Mat, vec: (f32, f32)) {
+        for y in 0..src.rows {
+            for x in 0..src.cols {
+                let dist_x = (x as f32 + vec.0).round() as usize;
+                let dist_y = (y as f32 + vec.1).round() as usize;
+
+                if dist_x < dist.cols as usize && dist_y < dist.rows as usize {
+                    dist.data[dist_y][dist_x] = src.data[y as usize][x as usize].to_vec();
+                }
+            }
+        }
+    }
+
+    pub fn standard_deviation(&self) -> f32 {
+        let avg = self.avg();
+        let mut total = 0.0;
+        for y in 0..(self.rows as usize) {
+            for x in 0..(self.cols as usize) {
+                let value = (self.data[y][x][0] as f32 - avg).powi(2);
+                total += value;
+            }
+        }
+        (total/self.elements() as f32).sqrt()
+    }
+
+    pub fn elements(&self) -> u32 {
+        self.rows as u32 * self.cols as u32
+    }
+
+    pub fn avg(&self) -> f32 {
+        let mut total = 0.0;
+        for y in 0..(self.rows as usize) {
+            for x in 0..(self.cols as usize) {
+                let value = self.data[y][x][0] as f32;
+                total += value;
+            }
+        }
+        total/(self.rows as f32*self.cols as f32)
+    }
 }
 
 pub trait VecOperators<T> {
-    fn add(&self, other: T) -> T; 
+    fn add(&self, other: T) -> T;
+    fn times(&self, factor: f32) -> T;
 }
 
 impl VecOperators<Vec<u8>> for Vec<u8> {
@@ -393,6 +447,14 @@ impl VecOperators<Vec<u8>> for Vec<u8> {
         let mut new_vec = Vec::with_capacity(self.len());
         for i in 0..self.len() { 
             new_vec.push(((self[i] as f32 + other[i] as f32)/2.0).round() as u8);
+        }
+        new_vec
+    }
+
+    fn times(&self, factor: f32) -> Vec<u8> {
+        let mut new_vec = Vec::with_capacity(self.len());
+        for i in 0..self.len() { 
+            new_vec.push((self[i] as f32 * factor).round() as u8);
         }
         new_vec
     }
