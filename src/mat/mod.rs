@@ -117,6 +117,11 @@ impl Mat {
         
         let mut new_bytes_per_pixel = 2;
 
+        if bytes_per_pixel == 4 {
+            new_bytes_per_pixel = 4;
+            data = vec![vec![vec![0u8, 0u8, 0u8, 255u8]; width as usize]; height as usize];
+        }
+
         if bytes_per_pixel == 3 {
             new_bytes_per_pixel = 4;
             data = vec![vec![vec![0u8, 0u8, 0u8, 255u8]; width as usize]; height as usize];

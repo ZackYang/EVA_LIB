@@ -1,4 +1,5 @@
 pub mod mat;
+pub mod cl;
 
 use mat::Mat;
 use mat::pixel_description::{PixelDescription, Direction};
