@@ -4,9 +4,11 @@ use std::ffi::CString;
 use ocl::builders::ContextProperties;
 use ocl::{core, flags};
 use ocl::enums::ArgVal;
+use std::time::Instant;
 
 use crate::mat::kernels::Kernel;
 
+#[derive(Debug, Clone)]
 pub struct CL {
     context: ocl::core::Context,
     program: ocl::core::Program,
@@ -84,6 +86,40 @@ impl CL {
                 uchar value = (uchar) (raw_value / 8.0 * max);
 
                 result[index] = value;
+            }
+
+            __kernel void calculate_pair(
+                __global uchar* result,
+                __global uchar* src,
+                __global uchar* a_cols,
+                __global uchar* a_rows,
+                __global uchar* b_cols,
+                __global uchar* b_rows,
+                int x,
+                int y,
+                int width,
+                int height
+            ) {
+                int index = get_global_id(0);
+                
+                int a_src_x = x+a_cols[index];
+                int a_src_y = y+a_rows[index];
+                int a_src_index = a_src_y*width + a_src_x;
+                
+                int b_src_x = x+b_cols[index];
+                int b_src_y = y+b_rows[index];
+                int b_src_index = b_src_y*width + b_src_x;
+                
+                if (a_src_x < width && a_src_y < height && b_src_x < width && b_src_y < height) {
+                    uchar a_value = src[a_src_index];
+                    uchar b_value = src[b_src_index];
+
+                    if (a_value > b_value) {
+                        result[index] = 1;
+                    } else {
+                        result[index] = 0;
+                    }
+                }
             }
         "#;
 
@@ -327,5 +363,77 @@ impl CL {
         let result_width = width - convolution_kernel.size() + 1;
         let result_height = height - convolution_kernel.size() + 1;
         Ok((result_width, result_height, standard_deviation, recovered_data))
+    }
+
+    pub fn cl_resize() {}
+
+    pub fn cl_calculate_pair(
+        &self,
+        src: &[u8],
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+        ax: Vec<i32>,
+        ay: Vec<i32>,
+        bx: Vec<i32>,
+        by: Vec<i32>
+    )
+        -> ocl::Result<Vec<i32>>
+    {
+        let mut vec = vec![2i32; 1024];
+        let dims = [1024, 1, 1];
+
+        let result_buffer = unsafe {
+            core::create_buffer(&self.context, flags::MEM_READ_WRITE | flags::MEM_COPY_HOST_PTR, 1024, Some(&vec))?
+        };
+
+        let src_buffer = unsafe {
+            core::create_buffer(&self.context, flags::MEM_READ_ONLY | flags::MEM_COPY_HOST_PTR, src.len(), Some(src))?
+        };
+        
+        let ax_buffer = unsafe {
+            core::create_buffer(&self.context, flags::MEM_READ_ONLY | flags::MEM_COPY_HOST_PTR, 1024, Some(&ax))?
+        };
+
+        let ay_buffer = unsafe {
+            core::create_buffer(&self.context, flags::MEM_READ_ONLY | flags::MEM_COPY_HOST_PTR, 1024, Some(&ay))?
+        };
+
+        let bx_buffer = unsafe {
+            core::create_buffer(&self.context, flags::MEM_READ_ONLY | flags::MEM_COPY_HOST_PTR, 1024, Some(&bx))?
+        };
+
+        let by_buffer = unsafe {
+            core::create_buffer(&self.context, flags::MEM_READ_ONLY | flags::MEM_COPY_HOST_PTR, 1024, Some(&by))?
+        };
+
+        let kernel = core::create_kernel(&self.program, "calculate_pair")?;
+        core::set_kernel_arg(&kernel, 0, ArgVal::mem(&result_buffer))?;
+        core::set_kernel_arg(&kernel, 1, ArgVal::mem(&src_buffer))?;
+        core::set_kernel_arg(&kernel, 2, ArgVal::mem(&ax_buffer))?;
+        core::set_kernel_arg(&kernel, 3, ArgVal::mem(&ay_buffer))?;
+        core::set_kernel_arg(&kernel, 4, ArgVal::mem(&bx_buffer))?;
+        core::set_kernel_arg(&kernel, 5, ArgVal::mem(&by_buffer))?;
+        core::set_kernel_arg(&kernel, 6, ArgVal::scalar(&x))?;
+        core::set_kernel_arg(&kernel, 7, ArgVal::scalar(&y))?;
+        core::set_kernel_arg(&kernel, 8, ArgVal::scalar(&width))?;
+        core::set_kernel_arg(&kernel, 9, ArgVal::scalar(&height))?;
+        
+                // Run the kernel:
+        let now = Instant::now();
+        unsafe {
+            core::enqueue_kernel(&self.queue, &kernel, 1, None, &dims,
+                None, None::<core::Event>, None::<&mut core::Event>)?;
+        }
+
+        // Read results from the device into a vector:
+        unsafe {
+            core::enqueue_read_buffer(&self.queue, &result_buffer, true, 0, &mut vec,
+                None::<core::Event>, None::<&mut core::Event>)?;
+        }
+
+        println!("Calculate Pair: {:?}", now.elapsed().as_millis());
+        Ok(vec)
     }
 }

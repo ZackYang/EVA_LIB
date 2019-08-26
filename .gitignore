@@ -12,3 +12,4 @@ Cargo.lock
 /*.bmp
 /*.png
 /results/*
+examples/results/*

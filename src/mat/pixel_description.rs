@@ -1,5 +1,6 @@
 use std::time::{Duration, Instant};
 use std::thread::sleep;
+use super::Mat;
 
 pub enum Direction {
     Horizontal,
@@ -7,7 +8,7 @@ pub enum Direction {
 }
 
 pub struct PixelDescription {
-    pub coordinate: (u16, u16),
+    pub coordinate: (usize, usize),
     pub description: Vec<i16>,
     pub value: u8,
     pub removed: bool,
@@ -19,13 +20,14 @@ impl PixelDescription {
         PixelDescription { coordinate: (0, 0), description: Vec::new(), value: 0, removed: true, feature_pairs: Vec::<u8>::new() }
     }
 
-    pub fn load_as_fast(coordinate: (u16, u16), src: &Vec<Vec<Vec<u8>>>, threshold: usize, direction: &Direction)
+    pub fn load_as_fast(coordinate: (usize, usize), src: &Mat, threshold: usize, direction: &Direction)
         -> (bool, PixelDescription)
     {
         let c = coordinate;
         let x = c.0 as i16;
         let y = c.1 as i16;
-        let value = src[c.1 as usize][c.0 as usize][0];
+        let value = src.get_pixel_by_xy(x as usize, y as usize)[0];
+        // src[c.1 as usize][c.0 as usize][0];
 
         let feature_points = vec![
             (x, y-3),
@@ -68,10 +70,10 @@ impl PixelDescription {
         for coor in fast_feature_points {
             let x = coor.0;
             let y = coor.1;
-            if x < 0 || y < 0 || y as usize >= src.len() || x as usize >= src[0].len() {
+            if x < 0 || y < 0 || y as usize >= src.rows || x as usize >= src.cols {
                 return (false, PixelDescription::new());
             }
-            let coor_value = src[y as usize][x as usize][0];
+            let coor_value = src.get_pixel_by_xy(x as usize, y as usize)[0];
             let value = (coor_value as i16 - value as i16).abs() as usize;
             if value > threshold {
                 total += 1;
@@ -90,10 +92,10 @@ impl PixelDescription {
         for coor in feature_points {
             let x = coor.0;
             let y = coor.1;
-            if x < 0 || y < 0 || y as usize >= src.len() || x as usize >= src[0].len() {
+            if x < 0 || y < 0 || y as usize >= src.rows || x as usize >= src.cols {
                 return (false, PixelDescription::new());
             }
-            let coor_value = src[coor.1 as usize][coor.0 as usize][0];
+            let coor_value = src.get_pixel_by_xy(x as usize, y as usize)[0];
 
             let description_value = coor_value as i16 - value as i16;
             if description_values.len() < 16 {
@@ -111,11 +113,11 @@ impl PixelDescription {
         }
 
         if max_hits >= 10 {
-            let feature_pairs = PixelDescription::calculate_pair((x as u16, y as u16), src, &direction);
+            // let feature_pairs = PixelDescription::calculate_pair((x as usize, y as usize), src, &direction);
             return (true, PixelDescription {
                 coordinate: coordinate,
                 description: description_values,
-                feature_pairs: feature_pairs,
+                feature_pairs: vec![0u8],
                 value: value,
                 removed: false
             });
@@ -123,9 +125,8 @@ impl PixelDescription {
         return (false, PixelDescription::new())
     }
 
-    pub fn calculate_pair(coordinate: (u16, u16), src: &Vec<Vec<Vec<u8>>>, direction: &Direction) 
-        -> Vec<u8>
-    {
+    pub fn calculate_pair(&mut self, src: &Mat, direction: &Direction) {
+        let coordinate = self.coordinate;
         let a_x = [
             -11,-10,-8,-8,12,-12,-15,0,-13,-4,-1,6,8,1,-12,0,-2,-12,10,-15,-4,13,1,-15,-12,-10,1,-9,-15,12,0,-1,-7,7,13,-11,-6,6,14,-2,-14,-2,-3,-8,10,10,12,7,6,-5,13,-2,-1,-12,8,-5,14,-10,-14,11,2,8,-13,-7,-7,-13,-12,9,-6,-15,3,7,9,7,8,8,-4,15,-8,-9,-4,0,10,1,-12,0,15,13,-9,0,-5,-11,9,3,0,2,-12,-15,-7,7,12,-11,-12,14,-8,-14,11,9,-1,7,7,-7,15,-8,14,5,5,4,1,1,11,1,-4,-4,-11,-13,6,-9,-14,-5,12,4,-8,-3,-11,12,-6,-3,15,14,5,-15,15,3,3,-10,-15,13,11,-11,10,15,3,4,11,4,7,-3,13,-15,7,9,2,3,2,-2,-4,-14,3,-10,-11,0,-1,-10,6,-9,5,2,12,7,9,-2,1,-13,5,-9,-9,4,-4,-1,-11,-4,8,2,-15,-3,2,-5,15,-4,-3,-9,-8,-6,-7,6,-10,11,6,5,-8,10,6,13,6,11,-14,-4,2,-9,-11,13,-7,8,-12,-14,5,6,10,-2,2,1,-5,2,-2,1,-12,-13,4,-3,-13,-10,12,7,10,14,-6,12,9,7,-9,8,5,6,-4,7,-8,-8,-8,-6,-15,7,-7,0,12,-1,-15,4,10,5,-6,-11,8,-13,-7,-11,-5,-14,12,6,-14,4,-2,-13,0,8,0,-9,5,-4,-4,-13,2,-14,10,10,-13,-15,1,-8,11,8,8,-3,-7,2,-6,-7,-12,13,-1,-11,-13,-4,14,6,2,-3,-15,1,7,-5,5,7,-9,2,13,11,-7,-11,-12,6,-1,5,5,-6,-15,-13,-3,-8,-7,7,-8,-13,-8,1,-5,13,1,3,0,4,-4,-15,-8,10,-1,14,-6,13,-15,-11,15,6,-6,-11,-9,6,-4,-6,-3,-14,7,-13,-13,8,11,-3,14,-2,11,-15,3,0,9,5,-3,-4,-15,6,6,11,-14,-11,0,12,13,-10,12,-3,-2,4,-2,7,-4,-3,-9,9,-6,0,4,-12,-6,8,-7,9,-3,7,-8,8,4,4,12,-10,8,-1,-3,7,14,-2,-10,2,10,1,5,15,-12,13,-13,14,-15,-9,0,-4,5,-3,12,12,6,4,10,12,-9,12,-11,-4,-10,-5,-13,12,-3,-5,9,5,10,8,-4,-6,-14,-12,-10,-5,0,1,11,0,0,3,-10,2,11,4,-8,14,5,5,6,8,-3,12,4,-7,-6,-8,-3,-9,8,-6,-11,-15,14,3,7,-6,0,-15,8,6,11,-2,11,-10,11,-9,0,14,14,-10,9,4,2,5,10,-11,-8,-1,12,9,-15,14,5,-4,-15,-14,-15,5,13,15,-9,14,-14,-15,0,-14,6,-7,-6,4,11,-11,-12,-3,15,-12,14,6,13,1,14,11,3,2,-12,3,-3,-3,-14,-9,-12,11,14,-14,5,-14,-2,-1,-9,-15,13,6,-2,-10,0,6,4,-13,11,4,12,-5,-10,10,-12,-3,-4,-6,10,-3,3,-1,-14,-4,8,15,-15,-8,11,5,0,4,-13,13,8,15,8,-10,-12,9,4,-14,-15,-2,-3,4,-4,14,-3,-8,15,-12,1,-11,-1,13,1,6,-12,-12,0,6,-8,-15,7,-6,-14,-7,-4,-1,8,15,14,-8,1,-6,2,-11,-3,-5,-1,8,-5,-15,-4,-3,-2,-14,-1,-14,13,12,-8,-10,-5,-13,-4,10,8,8,-7,1,-13,-5,15,-8,1,-12,5,-8,-11,-15,8,-4,0,-9,-14,-5,-11,6,12,3,4,10,6,5,4,8,2,11,-12,8,12,3,-13,-10,-15,15,-3,-9,10,-1,-6,0,-15,9,-6,-3,2,6,2,14,-2,6,10,0,-10,-2,-4,5,-15,6,-7,-7,13,-12,-12,5,13,9,-2,-8,-12,-14,6,15,3,15,-10,10,15,7,-13,10,-9,13,-6,-6,4,-8,5,-6,6,13,9,0,4,3,-7,-2,-4,-3,13,-1,-10,13,13,-7,7,4,-10,-13,-14,-12,15,15,3,0,-4,-11,14,-3,-9,-14,6,-7,-15,1,7,6,-12,5,2,5,13,-8,-7,-7,1,-15,-2,11,0,9,-13,2,2,-15,4,-5,-12,9,-11,9,-9,10,-1,-3,-11,-14,7,-7,6,11,-11,5,-5,6,9,5,-15,10,-2,4,12,-8,2,7,-7,-2,4,-6,-4,14,8,10,-9,-14,4,15,5,4,5,-12,9,-4,-10,-2,-11,6,-3,-10,-15,6,13,5,-10,5,6,-12,-8,-4,0,11,2,0,10,14,-8,13,8,-1,11,-11,-10,13,-1,-13,-12,8,0,-8,1,10,5,3,-3,-9,8,-1,15,10,-8,-1,1,3,-4,13,-5,-8,15,6,2,-14,-2,-5,10,-8,8,1,-8,-13,12,5,-8,-10,6,11,9,-7,-3,6,13,4,-13,0,4,-11,4,-7,-6,0,0,10,-13,3,14,13,13,-14,-3,-15,-13,4,5,-8,-7,12,9,-11,12,3,5,5,-6,-1,3,3,10,7,0,-5,-5,14,0,-3,3,12,11,-5,-2,15,15,14,15,-4,1,5,-13,-11,4,-11,-8,15,9,-8,4,11,3,5,-9,-13,-4,-15,-1,1
         ].to_vec();
@@ -166,22 +167,22 @@ impl PixelDescription {
             }
 
             if  ax >= 0 && 
-                ax < src[0].len() as i32 &&
+                ax < src.cols as i32 &&
                 ay >= 0 && 
-                ay < src.len() as i32 &&
+                ay < src.rows as i32 &&
                 bx >= 0 && 
-                bx < src[0].len() as i32 &&
+                bx < src.cols as i32 &&
                 by >= 0 && 
-                by < src.len() as i32 {
+                by < src.rows as i32 {
 
-                if src[ay as usize][ax as usize][0] > src[by as usize][bx as usize][0] {
+                if src.get_pixel_by_xy(ax as usize, ay as usize)[0] > src.get_pixel_by_xy(bx as usize, by as usize)[0] {
                     vec.push(1);
                 } else {
                     vec.push(0);
                 }
             }
         }
-        vec
+        self.feature_pairs = vec;
     }
 
     pub fn maximum_value(&self)

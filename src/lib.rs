@@ -1,9 +1,13 @@
 pub mod mat;
 pub mod cl;
 
+use cl::CL;
 use mat::Mat;
 use mat::pixel_description::{PixelDescription, Direction};
 use std::time::Instant;
+
+#[macro_use]
+extern crate lazy_static;
 
 pub fn stitch_left_right(left: Mat, right: Mat)
     -> Mat
@@ -11,16 +15,16 @@ pub fn stitch_left_right(left: Mat, right: Mat)
     let total_begin = Instant::now();
     let left_gray = left.to_gray();
     let right_gray = right.to_gray();
-
-    fn gen_masks(src: &Mat, width: u16, height: u16)
-    -> Vec<((u16, u16, u16, u16), (u16, u16, u16, u16))>
+    // 433ms
+    fn gen_masks(src: &Mat, width: usize, height: usize)
+    -> Vec<((usize, usize, usize, usize), (usize, usize, usize, usize))>
     {
         let groups = src.rows/height;
-        let mut masks = Vec::<((u16, u16, u16, u16), (u16, u16, u16, u16))>::with_capacity(groups as usize);
+        let mut masks = Vec::<((usize, usize, usize, usize), (usize, usize, usize, usize))>::with_capacity(groups as usize);
 
         for i in 0..groups {
             let left_x = src.cols - width -1;
-            let right_x = 0u16;
+            let right_x = 0usize;
             let y = i * height;
             let w = width;
             let h = height;
@@ -28,7 +32,7 @@ pub fn stitch_left_right(left: Mat, right: Mat)
         }
         masks
     }
-
+    
     let mut match_points = Vec::<(PixelDescription, PixelDescription)>::new();
     let mask_pairs = gen_masks(&left_gray, 200, 200);
 
@@ -40,23 +44,27 @@ pub fn stitch_left_right(left: Mat, right: Mat)
         match_points.extend_from_slice(points);
     }
 
+    // 922ms
     let move_vector = Mat::avg_mapping_vector(&match_points);
 
-    let mut dist = Mat::new(left.cols + right.cols - (left.cols - move_vector.0 as u16), left.rows, Some(255u8));
-    
+    let mut dist = Mat::new(left.cols + right.cols - (left.cols - move_vector.0 as usize), left.rows, Some(255u8));
+
     let shared_section = transition_section(&left, move_vector);
 
-    Mat::move_mat(&mut dist, &left, (0., 0.));
+    // Mat::move_mat(&mut dist, &left, (0., 0.));
+    dist.merge(left, 0, 0);
+
     let left_shared_mat = dist.crop(shared_section.0, shared_section.1, shared_section.2, shared_section.3);
 
     Mat::move_mat(&mut dist, &right, move_vector);
     let right_shared_mat = dist.crop(shared_section.0, shared_section.1, shared_section.2, shared_section.3);
 
     let shared_mat = fuse(&left_shared_mat, &right_shared_mat, Direction::Horizontal);
-    shared_mat.save_as_png("shared_mat_1.png");
-
-    println!("Spend ms on STITCHING:{}", total_begin.elapsed().as_millis());
-    dist.merge(shared_mat, shared_section.0 as u16, shared_section.1 as u16)
+    let total_begin = total_begin.elapsed().as_millis();
+    // shared_mat.save_as_png("shared_mat_1.png");
+    println!("Spend ms on STITCHING:{}", total_begin);
+    dist.merge(shared_mat, shared_section.0 as usize, shared_section.1 as usize);
+    dist
 }
 
 pub fn stitch_top_bottom(top: Mat, bottom: Mat)
@@ -66,11 +74,11 @@ pub fn stitch_top_bottom(top: Mat, bottom: Mat)
     let top_gray = top.to_gray();
     let bottom_gray = bottom.to_gray();
 
-    fn gen_masks(src: &Mat, width: u16, height: u16)
-    -> Vec<((u16, u16, u16, u16), (u16, u16, u16, u16))>
+    fn gen_masks(src: &Mat, width: usize, height: usize)
+    -> Vec<((usize, usize, usize, usize), (usize, usize, usize, usize))>
     {
         let groups = src.rows/width;
-        let mut masks = Vec::<((u16, u16, u16, u16), (u16, u16, u16, u16))>::with_capacity(groups as usize);
+        let mut masks = Vec::<((usize, usize, usize, usize), (usize, usize, usize, usize))>::with_capacity(groups as usize);
 
         for i in 0..groups {
             let x = i*width;
@@ -85,7 +93,7 @@ pub fn stitch_top_bottom(top: Mat, bottom: Mat)
 
     let mut match_points = Vec::<(PixelDescription, PixelDescription)>::new();
     let mask_pairs = gen_masks(&top_gray, 200, 200);
-
+    let total_begin = total_begin.elapsed().as_millis();
     for mask_pair in mask_pairs {
         let top_descriptions = top_gray.fast_search_features(10, &mask_pair.0, Direction::Vertical);
         let bottom_descriptions = bottom_gray.fast_search_features(10, &mask_pair.1, Direction::Vertical);
@@ -96,7 +104,7 @@ pub fn stitch_top_bottom(top: Mat, bottom: Mat)
 
     let move_vector = Mat::avg_mapping_vector(&match_points);
 
-    let mut dist = Mat::new(top.cols, top.rows + bottom.rows - (top.rows - move_vector.1 as u16), Some(255u8));
+    let mut dist = Mat::new(top.cols, top.rows + bottom.rows - (top.rows - move_vector.1 as usize), Some(255u8));
     
     let shared_section = transition_section(&top, move_vector);
 
@@ -109,8 +117,9 @@ pub fn stitch_top_bottom(top: Mat, bottom: Mat)
     let shared_mat = fuse(&top_shared_mat, &bottom_shared_mat, Direction::Vertical);
     shared_mat.save_as_png("shared_mat_2.png");
 
-    println!("Spend ms on STITCHING:{}", total_begin.elapsed().as_millis());
-    dist.merge(shared_mat, shared_section.0 as u16, shared_section.1 as u16)
+    println!("Spend ms on STITCHING:{}", total_begin);
+    dist.merge(shared_mat, shared_section.0 as usize, shared_section.1 as usize);
+    dist
 }
 
 fn fuse(a_image: &Mat, b_image: &Mat, direction: Direction) -> Mat {
@@ -118,7 +127,7 @@ fn fuse(a_image: &Mat, b_image: &Mat, direction: Direction) -> Mat {
     for y in 0..(a_image.rows as usize) {
         for x in 0..(a_image.cols as usize) {
             let mut new_vec = Vec::<u8>::new();
-            for i in 0..a_image.data[y][x].len() {
+            for i in 0..a_image.bytes_per_pixel {
                 let factor = match direction {
                     Direction::Horizontal => {
                         1.0 - x as f32/a_image.cols as f32
@@ -127,13 +136,13 @@ fn fuse(a_image: &Mat, b_image: &Mat, direction: Direction) -> Mat {
                         1.0 - y as f32/a_image.rows as f32
                     } 
                 };
-                let mut value = (a_image.data[y][x][i] as f32 * factor).round() + (b_image.data[y][x][i] as f32 * (1.0-factor)).round();
+                let mut value = (a_image.get_pixel_by_xy(x, y)[i] as f32 * factor).round() + (b_image.get_pixel_by_xy(x, y)[i] as f32 * (1.0-factor)).round();
                 if value > 255.0 {
                     value = 255.0;
                 }
                 new_vec.push(value as u8);
             }
-            new_section.data[y][x] = new_vec;
+            new_section.set_pixel_by_xy(x, y, new_vec);
         }
     }
     new_section
