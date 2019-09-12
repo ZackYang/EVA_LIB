@@ -203,7 +203,11 @@ impl Mat {
     }
 
     pub fn find_index(&self, x: usize, y: usize) -> usize {
-        y*self.cols + x
+        let result = y*self.cols + x;
+        // if result > 33177600 {
+        //     println!("错的时候 Y: {}, Cols: {}", y, self.cols);
+        // }
+        result
     }
 
     pub fn get_pixel(&self, index: usize) -> Vec<u8> {
@@ -420,7 +424,6 @@ impl Mat {
         (x_move_total/pairs.len() as f32, y_move_total/pairs.len() as f32)
     }
 
-    // TODO
     pub fn move_mat(dist: &mut Mat, src: &Mat, vec: (f32, f32)) {
         for y in 0..src.rows {
             for x in 0..src.cols {
@@ -434,6 +437,79 @@ impl Mat {
             }
         }
     }
+
+    pub fn get_vector(desc_a: &PixelDescription, desc_b: &PixelDescription) -> (f32, f32) {
+        (desc_b.coordinate.0 as f32 - desc_a.coordinate.0 as f32, desc_b.coordinate.1 as f32 - desc_a.coordinate.1 as f32)
+    }
+
+    pub fn region_vector(x: usize, y: usize, pairs: &Vec<(PixelDescription, PixelDescription)>, direction: Direction) -> (f32, f32) {
+        let mut left_pair: Option<&(PixelDescription, PixelDescription)> = None;
+
+        for pair in pairs {
+            if (left_pair.is_none() || (pair.0.coordinate.0 > left_pair.unwrap().0.coordinate.0)) && pair.0.coordinate.0 <= x {
+                left_pair = Some(pair);
+            }
+        }
+        
+        let mut right_pair: Option<&(PixelDescription, PixelDescription)> = None;
+
+        for pair in pairs {
+            if (right_pair.is_none() || (pair.0.coordinate.0 < right_pair.unwrap().0.coordinate.0)) && pair.0.coordinate.0 > x {
+                right_pair = Some(pair);
+            }
+        }
+
+        if left_pair.is_none() {
+            let pair = right_pair.unwrap();
+            return Mat::get_vector(&pair.0, &pair.1);
+        }
+
+        if right_pair.is_none() {
+            let pair = left_pair.unwrap();
+            return Mat::get_vector(&pair.0, &pair.1);
+        }
+
+        let left_pair = left_pair.unwrap();
+        let right_pair = right_pair.unwrap();
+
+        let left_right_distance = right_pair.0.coordinate.0 - left_pair.0.coordinate.0;
+        let left_distance = x - left_pair.0.coordinate.0;
+        let right_distance = right_pair.0.coordinate.0 - x;
+        let right_weight = left_distance as f32/left_right_distance  as f32;
+        let left_weight = right_distance as f32/left_right_distance  as f32;
+        
+        let left_vector = Mat::get_vector(&left_pair.0, &left_pair.1);
+        let right_vector = Mat::get_vector(&right_pair.0, &right_pair.1);
+
+        return (left_vector.0*left_weight + right_vector.0*right_weight, left_vector.1*left_weight + right_vector.1*right_weight);
+
+    }
+
+    pub fn move_mat_by_multi_points(dist: &mut Mat, src: &Mat, avg_vector: (f32, f32), points: &Vec<(PixelDescription, PixelDescription)>) {
+        for y in 0..src.rows {
+            println!("{:?}", y);
+            for x in 0..src.cols {
+                let dist_x = x as f32 + avg_vector.0;
+                let dist_y = y as f32 + avg_vector.1;
+
+                if dist_x >= 0.0f32 && dist_x < dist.cols as f32 && dist_y >= 0.0f32 && dist_y < dist.rows as f32 {
+                    let dist_x = dist_x.round() as usize;
+                    let dist_y = dist_y.round() as usize;
+
+                    let vec = Mat::region_vector(dist_x, dist_y, points, Direction::Vertical);
+                    // println!("{:?}", vec);
+                    let src_x = (dist_x as f32 + vec.0).round() as i32;
+                    let src_y = (dist_y as f32 + vec.1).round() as i32;
+
+                    if src_x >= 0 && src_y >= 0 {
+                        dist.set_pixel_by_xy(dist_x, dist_y, src.get_pixel_by_xy(src_x as usize, src_y as usize));
+                    }
+                }
+            }
+        }
+    }
+
+    
 
     pub fn get_pixel_by_xy(&self, x: usize, y: usize) -> Vec<u8> {
         let index = self.find_index(x, y);
