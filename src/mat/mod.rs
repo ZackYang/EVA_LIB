@@ -45,6 +45,19 @@ impl Mat {
         Mat::load_from_vec(data, w, h, 3)
     }
 
+    pub fn create(w: usize, h: usize, color: Vec<u8>)
+        -> Mat
+    {
+
+        let mut data = Vec::<u8>::with_capacity(w*h*3);
+        for i in 0..(w*h) {
+            for chn in &color {
+                data.push(*chn);
+            }
+        }
+        Mat::load_from_vec(data, w, h, 3)
+    }
+
     pub fn load_jpeg(path: &str)
         -> Mat
     {
@@ -176,7 +189,7 @@ impl Mat {
     //     mat
     // }
 
-    pub fn merge(&mut self, other: Mat, x: usize, y: usize) {
+    pub fn merge(&mut self, other: &Mat, x: usize, y: usize) {
         for row in 0..other.rows {
             for col in 0..other.cols {
                 let pixel = other.get_pixel_by_xy(col, row);
@@ -440,6 +453,31 @@ impl Mat {
 
     pub fn get_vector(desc_a: &PixelDescription, desc_b: &PixelDescription) -> (f32, f32) {
         (desc_b.coordinate.0 as f32 - desc_a.coordinate.0 as f32, desc_b.coordinate.1 as f32 - desc_a.coordinate.1 as f32)
+    }
+
+    pub fn add_padding(&self, width: usize) -> Mat {
+        let mut colors = Vec::<Vec<u8>>::new();
+        for x in (0..self.cols) {
+            colors.push(self.get_pixel_by_xy(x, 0));
+            colors.push(self.get_pixel_by_xy(x, self.rows));
+        }
+
+        let mut avg_color = vec![0usize; self.bytes_per_pixel];
+        for color in &colors {
+            for (i, chn) in color.iter().enumerate() {
+                avg_color[i] += *chn as usize;
+            }
+        }
+
+        let mut new_color = vec![0u8; self.bytes_per_pixel];
+
+        for (i, sum_chn) in avg_color.iter().enumerate() {
+            new_color[i] = (avg_color[i]/colors.len()) as u8;
+        }
+
+        let mut new_image = Mat::create(self.cols + width*2, self.rows + width*2, new_color);
+        new_image.merge(self, width, width);
+        new_image
     }
 
     pub fn region_vector(x: usize, y: usize, pairs: &Vec<(PixelDescription, PixelDescription)>, direction: Direction) -> (f32, f32) {

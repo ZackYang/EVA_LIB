@@ -9,7 +9,7 @@ use std::time::Instant;
 #[macro_use]
 extern crate lazy_static;
 
-pub fn stitch_left_right(left: Mat, right: Mat)
+pub fn stitch_left_right(left: &Mat, right: &Mat)
     -> Mat
 {
     let total_begin = Instant::now();
@@ -45,12 +45,19 @@ pub fn stitch_left_right(left: Mat, right: Mat)
     }
 
     // 922ms
-    let move_vector = Mat::avg_mapping_vector(&match_points);
+    let mut move_vector = Mat::avg_mapping_vector(&match_points);
+    
+    if move_vector.0.is_nan() || move_vector.1.is_nan() {
+        move_vector = ((left.cols as f32) - 600.0f32, 0f32);
+    }
+
     let mut dist = Mat::new(left.cols + right.cols - (left.cols - move_vector.0 as usize), left.rows, Some(255u8));
 
-    let shared_section = transition_section(&left, move_vector);
-    println!("{:?}", dist.rows);
     // Mat::move_mat(&mut dist, &left, (0., 0.));
+
+    let shared_section = transition_section(&left, move_vector);
+
+    println!("{:?}", move_vector);
     dist.merge(left, 0, 0);
     println!("{:?}", shared_section);
     println!("===================================================================================================");
@@ -63,11 +70,11 @@ pub fn stitch_left_right(left: Mat, right: Mat)
     let total_begin = total_begin.elapsed().as_millis();
     // shared_mat.save_as_png("shared_mat_1.png");
     println!("Spend ms on STITCHING:{}", total_begin);
-    dist.merge(shared_mat, shared_section.0 as usize, shared_section.1 as usize);
+    dist.merge(&shared_mat, shared_section.0 as usize, shared_section.1 as usize);
     dist
 }
 
-pub fn stitch_top_bottom(top: Mat, bottom: Mat)
+pub fn stitch_top_bottom(top: &Mat, bottom: &Mat)
     -> Mat
 {
     let total_begin = Instant::now();
@@ -113,24 +120,33 @@ pub fn stitch_top_bottom(top: Mat, bottom: Mat)
         }
     }
 
-    let move_vector = Mat::avg_mapping_vector(&match_points);
-
+    let mut move_vector = Mat::avg_mapping_vector(&match_points);
+    let mut multi_points = true;
+    if move_vector.0.is_nan() || move_vector.1.is_nan() {
+        move_vector = (0f32, (top.rows - 100) as f32);
+        multi_points = false;
+    }
     let mut dist = Mat::new(top.cols, top.rows + bottom.rows - (top.rows - move_vector.1 as usize), Some(255u8));
     
     let shared_section = transition_section(&top, move_vector);
 
     Mat::move_mat(&mut dist, &top, (0., 0.));
+    println!("{:?}", shared_section);
+    println!("===================================================================================================");
     let top_shared_mat = dist.crop(shared_section.0, shared_section.1, shared_section.2, shared_section.3);
     
+    if multi_points {
+        Mat::move_mat_by_multi_points(&mut dist, &bottom, move_vector, &match_points);
+    } else {
+        Mat::move_mat(&mut dist, &bottom, move_vector);
+        let bottom_shared_mat = dist.crop(shared_section.0, shared_section.1, shared_section.2, shared_section.3);
+        let shared_mat = fuse(&top_shared_mat, &bottom_shared_mat, Direction::Vertical);
+        dist.merge(&shared_mat, shared_section.0 as usize, shared_section.1 as usize);
+    }
     // Mat::move_mat(&mut dist, &bottom, move_vector);
-    Mat::move_mat_by_multi_points(&mut dist, &bottom, move_vector, &match_points);
-    let bottom_shared_mat = dist.crop(shared_section.0, shared_section.1, shared_section.2, shared_section.3);
-    
-    let shared_mat = fuse(&top_shared_mat, &bottom_shared_mat, Direction::Vertical);
     // shared_mat.save_as_png("shared_mat_2.png");
 
     println!("Spend ms on STITCHING:{}", total_begin);
-    dist.merge(shared_mat, shared_section.0 as usize, shared_section.1 as usize);
     // for pair in match_points {
     //     // println!("{:?}, ", pair.0.coordinate.0);
     //     dist.draw_point(pair.0.coordinate, vec!(255u8, 0u8, 0u8));
