@@ -6,9 +6,9 @@ use rand::Rng;
 use std::mem;
 
 fn main() {
-    let left = mat::Mat::load_png("examples/tests/6pics/result.png");
-    let right = mat::Mat::load_png("examples/tests/6pics/result1.png");
-    let result = eva_lib::stitch_top_bottom(left, right);
+    let left = mat::Mat::load_png("examples/tests/6pics/1.png");
+    let right = mat::Mat::load_png("examples/tests/6pics/0.png");
+    let (result, x, y) = eva_lib::stitch_left_right(&left, &right);
     result.save_as_png("examples/tests/6pics/final_result.png");
 
     // let top = mat::Mat::load_jpeg("examples/tests/top.jpg");

@@ -298,7 +298,7 @@ impl PixelDescription {
 
         for pair in pairs {
             if ((get_angle(&pair) - avg_angle)/3.14).abs() < 0.05 {
-                if ((get_distance(&pair) - avg_distance)/avg_distance).abs() < 0.2 {
+                if ((get_distance(&pair) - avg_distance)/avg_distance).abs() < 0.1 {
                     new_pairs.push(pair.clone());
                 }
             }

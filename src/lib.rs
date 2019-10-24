@@ -10,7 +10,7 @@ use std::time::Instant;
 extern crate lazy_static;
 
 pub fn stitch_left_right(left: &Mat, right: &Mat)
-    -> Mat
+    -> (Mat, f32, f32)
 {
     let total_begin = Instant::now();
     let left_gray = left.to_gray();
@@ -34,7 +34,7 @@ pub fn stitch_left_right(left: &Mat, right: &Mat)
     }
     
     let mut match_points = Vec::<(PixelDescription, PixelDescription)>::new();
-    let mask_pairs = gen_masks(&left_gray, 1000, 200);
+    let mask_pairs = gen_masks(&left_gray, 150, 150);
 
     for mask_pair in mask_pairs {
         let left_descriptions = left_gray.fast_search_features(10, &mask_pair.0, Direction::Horizontal);
@@ -44,11 +44,13 @@ pub fn stitch_left_right(left: &Mat, right: &Mat)
         match_points.extend_from_slice(points);
     }
 
+    println!("Pairs: {:?}", match_points.len());
+
     // 922ms
     let mut move_vector = Mat::avg_mapping_vector(&match_points);
     
-    if move_vector.0.is_nan() || move_vector.1.is_nan() {
-        move_vector = ((left.cols as f32) - 600.0f32, 0f32);
+    if move_vector.0.is_nan() || move_vector.1.is_nan() || match_points.len() < 3 {
+        move_vector = ((left.cols as f32) - 235.0f32, 0f32);
     }
 
     let mut dist = Mat::new(left.cols + right.cols - (left.cols - move_vector.0 as usize), left.rows, Some(255u8));
@@ -71,11 +73,11 @@ pub fn stitch_left_right(left: &Mat, right: &Mat)
     // shared_mat.save_as_png("shared_mat_1.png");
     println!("Spend ms on STITCHING:{}", total_begin);
     dist.merge(&shared_mat, shared_section.0 as usize, shared_section.1 as usize);
-    dist
+    (dist, move_vector.0, move_vector.1)
 }
 
 pub fn stitch_top_bottom(top: &Mat, bottom: &Mat)
-    -> Mat
+    -> (Mat, f32, f32)
 {
     let total_begin = Instant::now();
     let top_gray = top.to_gray();
@@ -99,7 +101,7 @@ pub fn stitch_top_bottom(top: &Mat, bottom: &Mat)
     }
 
     let mut match_points = Vec::<(PixelDescription, PixelDescription)>::new();
-    let mask_pairs = gen_masks(&top_gray, 100, 1100);
+    let mask_pairs = gen_masks(&top_gray, 400, 162);
     let total_begin = total_begin.elapsed().as_millis();
     for mask_pair in mask_pairs {
         println!("Mask X: {:?}", (mask_pair.0).0);
@@ -109,21 +111,14 @@ pub fn stitch_top_bottom(top: &Mat, bottom: &Mat)
         let points = &PixelDescription::match_points(&top_descriptions, &bottom_descriptions, 900);
         println!("Pairs: {:?}", points.len());
         println!("Mask: ====================================================");
-        // match_points.extend_from_slice(points);
-        if points.len() >= 3 {
-            let a_vect = Mat::get_vector(&points[0].0, &points[0].1);
-            let b_vect = Mat::get_vector(&points[1].0, &points[1].1);
-            let c_vect = Mat::get_vector(&points[2].0, &points[2].1);
-            if (a_vect.0 - b_vect.0).abs() < 5.0 && (a_vect.1 - b_vect.1).abs() < 5.0 && (a_vect.1 - c_vect.1).abs() < 5.0 {
-                match_points.push(points[0].clone());
-            }
-        }
+        match_points.extend_from_slice(points);
     }
 
     let mut move_vector = Mat::avg_mapping_vector(&match_points);
     let mut multi_points = true;
     if move_vector.0.is_nan() || move_vector.1.is_nan() {
-        move_vector = (0f32, (top.rows - 100) as f32);
+        println!("强行来个位置");
+        move_vector = (0f32, (top.rows - 156) as f32);
         multi_points = false;
     }
     let mut dist = Mat::new(top.cols, top.rows + bottom.rows - (top.rows - move_vector.1 as usize), Some(255u8));
@@ -135,14 +130,14 @@ pub fn stitch_top_bottom(top: &Mat, bottom: &Mat)
     println!("===================================================================================================");
     let top_shared_mat = dist.crop(shared_section.0, shared_section.1, shared_section.2, shared_section.3);
     
-    if multi_points {
-        Mat::move_mat_by_multi_points(&mut dist, &bottom, move_vector, &match_points);
-    } else {
+    // if multi_points {
+    //     Mat::move_mat_by_multi_points(&mut dist, &bottom, move_vector, &match_points);
+    // } else {
         Mat::move_mat(&mut dist, &bottom, move_vector);
         let bottom_shared_mat = dist.crop(shared_section.0, shared_section.1, shared_section.2, shared_section.3);
         let shared_mat = fuse(&top_shared_mat, &bottom_shared_mat, Direction::Vertical);
         dist.merge(&shared_mat, shared_section.0 as usize, shared_section.1 as usize);
-    }
+    // }
     // Mat::move_mat(&mut dist, &bottom, move_vector);
     // shared_mat.save_as_png("shared_mat_2.png");
 
@@ -152,7 +147,7 @@ pub fn stitch_top_bottom(top: &Mat, bottom: &Mat)
     //     dist.draw_point(pair.0.coordinate, vec!(255u8, 0u8, 0u8));
     // }
 
-    dist
+    (dist, move_vector.0, move_vector.1)
 }
 
 fn fuse(a_image: &Mat, b_image: &Mat, direction: Direction) -> Mat {

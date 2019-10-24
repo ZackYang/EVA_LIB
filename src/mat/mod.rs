@@ -525,7 +525,7 @@ impl Mat {
 
     pub fn move_mat_by_multi_points(dist: &mut Mat, src: &Mat, avg_vector: (f32, f32), points: &Vec<(PixelDescription, PixelDescription)>) {
         for y in 0..src.rows {
-            println!("{:?}", y);
+            // println!("{:?}", y);
             for x in 0..src.cols {
                 let dist_x = x as f32 + avg_vector.0;
                 let dist_y = y as f32 + avg_vector.1;
